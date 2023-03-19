@@ -1,0 +1,63 @@
+name: 'Terraform GitHub Actions'
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install kubectl
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        curl -LO "https://dl.k8s.io/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+        echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+        kubectl version --client
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: "1.1.7"
+
+    - name: Install AWS CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y awscli
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+
+    - name: Terraform Init for Remote state
+      run: |
+        terraform init -backend-config="bucket=adeolu-exam-bucket-v" \
+          -backend-config="key=terraform.tfstate" \
+          -backend-config="region=us-east-1"
+
+    - name: Initialize Terraform
+      id: init
+      run: terraform init
+      
+    - name: Format Terraform
+      id: fmt
+      run: terraform fmt -check
+      continue-on-error: true
+      
+    - name: Validate Terraform
+      id: validate
+      run: terraform validate
+
+    - name: Terraform plan
+      id: plan
+      run: terraform plan -no-color
+      continue-on-error: true
